@@ -4,6 +4,7 @@ shallow_clone: true
 
 environment:
   matrix:
+    - {SYSTEM: msvc, ARCH: x86_64, COMPILER: 4.03}
     - {SYSTEM: mingw, ARCH: x86_64, COMPILER: 4.03}
     - {SYSTEM: cygwin, ARCH: x86, COMPILER: 4.04}
     # Temporary workaround; see commit message.
@@ -19,7 +20,11 @@ environment:
 install:
   - 'IF EXIST C:\projects\lwt\appveyor-debug (SET LWT_APPVEYOR_DEBUG=yes)'
 
+  - 'call "C:\Program Files\Microsoft SDKs\Windows\v7.1\Bin\SetEnv.cmd" /x64'
+  - 'SET PATH="C:\Program Files\OCaml\bin\;C:\Program Files\OCaml\bin\flexdll;%PATH%"'
+
   - 'IF "%ARCH%"=="x86" (SET CYGSH=C:\Cygwin\bin\bash -lc) ELSE (SET CYGSH=C:\Cygwin64\bin\bash -lc)'
+  - 'IF "%SYSTEM%"=="msvc" ( SET CYGSH=C:\Cygwin\bin\bash -lc )'
   - 'IF "%ARCH%"=="x86" (SET CYGSETUP=C:\Cygwin\setup-x86) ELSE (SET CYGSETUP=C:\Cygwin64\setup-x86_64)'
 
   - 'IF "%LWT_APPVEYOR_DEBUG%"=="yes" (%CYGSETUP% -q -P nano)'
