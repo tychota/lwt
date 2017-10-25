@@ -158,32 +158,35 @@ let test_rev_map f =
   f (fun n -> Lwt.return (n * 2)) l >>= fun after ->
   Lwt.return (after = [6; 4; 2])
 
+let native () =
+  Lwt.debug_underlying_implementation = `Native
+
 let suite = suite "lwt_list" [
-  test "iter_p" begin fun () ->
+  test "iter_p" ~only_if:native begin fun () ->
     test_iter Lwt_list.iter_p [1; 0; 1];
     test_exception Lwt_list.iter_p;
     Lwt.return true
   end;
 
-  test "iter_s" begin fun () ->
+  test "iter_s" ~only_if:native begin fun () ->
     test_iter Lwt_list.iter_s [1; 0; 0];
     test_exception Lwt_list.iter_s;
     Lwt.return true
   end;
 
-  test "map_p" begin fun () ->
+  test "map_p" ~only_if:native begin fun () ->
     test_map Lwt_list.map_p [4; 8; 5];
     test_exception Lwt_list.map_p;
     Lwt.return true
   end;
 
-  test "map_s" begin fun () ->
+  test "map_s" ~only_if:native begin fun () ->
     test_map Lwt_list.map_s [4; 7; 8];
     test_exception Lwt_list.map_s;
     Lwt.return true
   end;
 
-  test "fold_left_s" begin fun () ->
+  test "fold_left_s" ~only_if:native begin fun () ->
     let l = [1; 2; 3] in
     let f acc v = Lwt.return (v::acc) in
     let t = Lwt_list.fold_left_s f [] l in

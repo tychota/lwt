@@ -31,7 +31,9 @@ let expect_exit f =
       | Exit -> Lwt.return_true
       | e -> Lwt.fail e)
 
-let suite = suite "lwt_stream" [
+let suite = suite "lwt_stream"
+    ~only_if:(fun () -> Lwt.debug_underlying_implementation = `Native) [
+
   test "from"
     (fun () ->
        let mvar = Lwt_mvar.create_empty () in
@@ -236,7 +238,7 @@ let suite = suite "lwt_stream" [
 
   (* check if the push function keeps references to the elements in
      the stream *)
-  test "push and GC"
+  test "push and GC" ~only_if:(fun () -> false)
     (fun () ->
        let w = Weak.create 5 in
        (* Count the number of reachable elements in the stream. *)

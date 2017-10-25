@@ -31,6 +31,12 @@ let state_is =
 let later f =
   Lwt.map f Lwt.return_unit
 
+let native =
+  Lwt.debug_underlying_implementation = `Native
+
+let js =
+  Lwt.debug_underlying_implementation = `JS
+
 
 
 (* An exception type fresh to this testing module. *)
@@ -172,22 +178,25 @@ let initial_promise_tests = suite "initial promises" [
     state_is (Lwt.Return "foo") p
   end;
 
-  test "waiter_of_wakener" begin fun () ->
+  test "waiter_of_wakener" ~only_if:(fun () -> native) begin fun () ->
     let p, r = Lwt.wait () in
     Lwt.return (Lwt.waiter_of_wakener r == p)
   end;
 ]
 let suites = suites @ [initial_promise_tests]
 
+(* With native promises, trying to resolve an already-resolved promise results
+   in an exception. With JS promises, it is a silent failure. Either case is
+   arguably a programming error. *)
 let double_resolve_tests = suite "double resolve" [
   test "wakeup: double use on wait" begin fun () ->
     let _, r = Lwt.wait () in
     Lwt.wakeup r "foo";
     try
       Lwt.wakeup r "foo";
-      Lwt.return false
+      Lwt.return js
     with Invalid_argument "Lwt.wakeup" ->
-      Lwt.return true
+      Lwt.return native
   end [@ocaml.warning "-52"];
 
   test "wakeup: double use on task" begin fun () ->
@@ -195,9 +204,9 @@ let double_resolve_tests = suite "double resolve" [
     Lwt.wakeup r "foo";
     try
       Lwt.wakeup r "foo";
-      Lwt.return false
+      Lwt.return js
     with Invalid_argument "Lwt.wakeup" ->
-      Lwt.return true
+      Lwt.return native
   end [@ocaml.warning "-52"];
 
   test "wakeup_exn: double use on wait" begin fun () ->
@@ -205,9 +214,9 @@ let double_resolve_tests = suite "double resolve" [
     Lwt.wakeup_exn r Exception;
     try
       Lwt.wakeup_exn r Exception;
-      Lwt.return false
+      Lwt.return js
     with Invalid_argument "Lwt.wakeup_exn" ->
-      Lwt.return true
+      Lwt.return native
   end [@ocaml.warning "-52"];
 
   test "wakeup_exn: double use on task" begin fun () ->
@@ -215,9 +224,9 @@ let double_resolve_tests = suite "double resolve" [
     Lwt.wakeup_exn r Exception;
     try
       Lwt.wakeup_exn r Exception;
-      Lwt.return false
+      Lwt.return js
     with Invalid_argument "Lwt.wakeup_exn" ->
-      Lwt.return true
+      Lwt.return native
   end [@ocaml.warning "-52"];
 
   test "wakeup_result: double use on wait" begin fun () ->
@@ -225,9 +234,9 @@ let double_resolve_tests = suite "double resolve" [
     Lwt.wakeup_exn r Exception;
     try
       Lwt.wakeup_result r (Result.Ok ());
-      Lwt.return false
+      Lwt.return js
     with Invalid_argument "Lwt.wakeup_result" ->
-      Lwt.return true
+      Lwt.return native
   end [@ocaml.warning "-52"];
 
   test "wakeup_result: double use on task" begin fun () ->
@@ -235,9 +244,9 @@ let double_resolve_tests = suite "double resolve" [
     Lwt.wakeup_exn r Exception;
     try
       Lwt.wakeup_result r (Result.Ok ());
-      Lwt.return false
+      Lwt.return js
     with Invalid_argument "Lwt.wakeup_result" ->
-      Lwt.return true
+      Lwt.return native
   end [@ocaml.warning "-52"];
 ]
 let suites = suites @ [double_resolve_tests]
@@ -262,13 +271,21 @@ let bind_tests = suite "bind" [
      See
 
        https://github.com/ocsigen/lwt/issues/329 *)
-  test "already fulfilled, f raises" begin fun () ->
+  test "already fulfilled, f raises" ~only_if:(fun () -> native) begin fun () ->
     let p = Lwt.return "foo" in
     try
       Lwt.bind p (fun _ -> raise Exception) |> ignore;
       Lwt.return false
     with Exception ->
       Lwt.return true
+  end;
+
+  (* By contrast, JS promises have no such problem as above. *)
+  test "already fulfilled, f raises (js)" ~only_if:(fun () -> js)
+  begin fun () ->
+    let p = Lwt.return "foo" in
+    let p = Lwt.bind p (fun _ -> raise Exception) in
+    state_is (Lwt.Fail Exception) p
   end;
 
   test "already rejected" begin fun () ->
@@ -381,7 +398,7 @@ let bind_tests = suite "bind" [
 
   (* This tests an implementation detail, namely that proxy promise chaining
      does not form cycles. It's only relevant for the native implementation. *)
-  test "cycle" begin fun () ->
+  test "cycle" ~only_if:(fun () -> native) begin fun () ->
     let p, r = Lwt.wait () in
     let p' = ref (Lwt.return ()) in
     p' := Lwt.bind p (fun _ -> !p');
@@ -508,7 +525,7 @@ let catch_tests = suite "catch" [
   (* This is an analog of the "bind quirk," see
 
        https://github.com/ocsigen/lwt/issues/329 *)
-  test "rejected, h raises" begin fun () ->
+  test "rejected, h raises" ~only_if:(fun () -> native) begin fun () ->
     try
       ignore @@ Lwt.catch
         (fun () -> Lwt.fail Exit)
@@ -516,6 +533,12 @@ let catch_tests = suite "catch" [
       Lwt.return false
     with Exception ->
       Lwt.return true
+  end;
+
+  (* JS promises don't suffer from the bind quirk. *)
+  test "rejected, h raises (js)" ~only_if:(fun () -> js) begin fun () ->
+    let p = Lwt.catch (fun () -> Lwt.fail Exit) (fun _ -> raise Exception) in
+    state_is (Lwt.Fail Exception) p
   end;
 
   test "pending" begin fun () ->
@@ -663,7 +686,7 @@ let try_bind_tests = suite "try_bind" [
   end;
 
   (* An analog of the bind quirk. *)
-  test "fulfilled, f' raises" begin fun () ->
+  test "fulfilled, f' raises" ~only_if:(fun () -> native) begin fun () ->
     try
       ignore @@ Lwt.try_bind
         (fun () -> Lwt.return ())
@@ -672,6 +695,17 @@ let try_bind_tests = suite "try_bind" [
       Lwt.return false
     with Exception ->
       Lwt.return true
+  end;
+
+  (* No bind quirk on JS. *)
+  test "fulfilled, f' raises (js)" ~only_if:(fun () -> js) begin fun () ->
+    let p =
+      Lwt.try_bind
+        (fun () -> Lwt.return ())
+        (fun () -> raise Exception)
+        (fun _ -> Lwt.return ())
+    in
+    state_is (Lwt.Fail Exception) p
   end;
 
   test "rejected" begin fun () ->
@@ -695,7 +729,7 @@ let try_bind_tests = suite "try_bind" [
   end;
 
   (* Another analog of the bind quirk *)
-  test "rejected, h raises" begin fun () ->
+  test "rejected, h raises" ~only_if:(fun () -> native) begin fun () ->
     try
       ignore @@ Lwt.try_bind
         (fun () -> Lwt.fail Exit)
@@ -704,6 +738,17 @@ let try_bind_tests = suite "try_bind" [
       Lwt.return false
     with Exception ->
       Lwt.return true
+  end;
+
+  (* No bind quirk on JS. *)
+  test "rejected, h raises (js)" ~only_if:(fun () -> js) begin fun () ->
+    let p =
+      Lwt.try_bind
+        (fun () -> Lwt.fail Exit)
+        (fun _ -> Lwt.return ())
+        (fun _ -> raise Exception)
+    in
+    state_is (Lwt.Fail Exception) p
   end;
 
   test "pending" begin fun () ->
@@ -914,7 +959,7 @@ let finalize_tests = suite "finalize" [
   end;
 
   (* An instance of the bind quirk. *)
-  test "fulfilled, f' raises" begin fun () ->
+  test "fulfilled, f' raises" ~only_if:(fun () -> native) begin fun () ->
     try
       ignore @@ Lwt.finalize
         (fun () -> Lwt.return ())
@@ -922,6 +967,16 @@ let finalize_tests = suite "finalize" [
       Lwt.return false
     with Exception ->
       Lwt.return true
+  end;
+
+  (* JS doesn't have the bind quirk. *)
+  test "fulfilled, f' raises (js)" ~only_if:(fun () -> js) begin fun () ->
+    let p =
+      Lwt.finalize
+        (fun () -> Lwt.return ())
+        (fun () -> raise Exception)
+    in
+    state_is (Lwt.Fail Exception) p
   end;
 
   test "rejected" begin fun () ->
@@ -945,7 +1000,7 @@ let finalize_tests = suite "finalize" [
   end;
 
   (* An instance of the bind quirk. *)
-  test "rejected, f' raises" begin fun () ->
+  test "rejected, f' raises" ~only_if:(fun () -> native) begin fun () ->
     try
       ignore @@ Lwt.finalize
         (fun () -> Lwt.fail Exit)
@@ -953,6 +1008,17 @@ let finalize_tests = suite "finalize" [
       Lwt.return false
     with Exception ->
       Lwt.return true
+  end;
+
+  (* JS doesn't have the bind quirk. *)
+  test "rejected, f' raises (js)" ~only_if:(fun () -> js)
+  begin fun () ->
+    let p =
+      Lwt.finalize
+        (fun () -> Lwt.fail Exit)
+        (fun () -> raise Exception)
+    in
+    state_is (Lwt.Fail Exception) p
   end;
 
   test "pending" begin fun () ->
@@ -1117,7 +1183,7 @@ let backtrace_finalize_tests = suite "backtrace_finalize" [
   end;
 
   (* Instance of the bind quirk. *)
-  test "fulfilled, f' raises" begin fun () ->
+  test "fulfilled, f' raises" ~only_if:(fun () -> native) begin fun () ->
     try
       ignore @@ Lwt.backtrace_finalize add_loc
         (fun () -> Lwt.return ())
@@ -1125,6 +1191,16 @@ let backtrace_finalize_tests = suite "backtrace_finalize" [
       Lwt.return false
     with Exception ->
       Lwt.return true
+  end;
+
+  (* JS doesn't have the bind quirk. *)
+  test "fulfilled, f' raises (js)" ~only_if:(fun () -> js) begin fun () ->
+    let p =
+      Lwt.backtrace_finalize add_loc
+        (fun () -> Lwt.return ())
+        (fun () -> raise Exception)
+    in
+    state_is (Lwt.Fail Exception) p
   end;
 
   test "rejected" begin fun () ->
@@ -1148,7 +1224,7 @@ let backtrace_finalize_tests = suite "backtrace_finalize" [
   end;
 
   (* Instance of the bind quirk. *)
-  test "rejected, f' raises" begin fun () ->
+  test "rejected, f' raises" ~only_if:(fun () -> native) begin fun () ->
     try
       ignore @@ Lwt.backtrace_finalize add_loc
         (fun () -> Lwt.fail Exit)
@@ -1156,6 +1232,16 @@ let backtrace_finalize_tests = suite "backtrace_finalize" [
       Lwt.return false
     with Exception ->
       Lwt.return true
+  end;
+
+  (* JS doesn't have the bind quirk. *)
+  test "rejected, f' raises (js)" ~only_if:(fun () -> js) begin fun () ->
+    let p =
+      Lwt.backtrace_finalize add_loc
+        (fun () -> Lwt.fail Exit)
+        (fun () -> raise Exception)
+    in
+    state_is (Lwt.Fail Exception) p
   end;
 
   test "pending" begin fun () ->
@@ -1586,7 +1672,9 @@ let async_tests = suite "async" [
 ]
 let suites = suites @ [async_tests]
 
-let ignore_result_tests = suite "ignore_result" [
+(* ignore_result amounts to a synchronous state check, so it is not available on
+   JS. It is deprecated anyway. *)
+let ignore_result_tests = suite "ignore_result" ~only_if:(fun () -> native) [
   test "fulfilled" begin fun () ->
     Lwt.ignore_result (Lwt.return ());
     (* Reaching this without an exception is success. *)
@@ -1691,7 +1779,8 @@ let choose_tests = suite "choose" [
     state_is (Lwt.Fail Exception) p
   end;
 
-  test "multiple resolved" begin fun () ->
+  (* The PRNG-informed choice is performed only by the native implementation. *)
+  test "multiple resolved" ~only_if:(fun () -> native) begin fun () ->
     (* This is run in a loop to exercise the internal PRNG. *)
     let outcomes = Array.make 3 0 in
     let rec repeat n =
@@ -1741,7 +1830,8 @@ let choose_tests = suite "choose" [
 ]
 let suites = suites @ [choose_tests]
 
-let nchoose_tests = suite "nchoose" [
+(* nchoose and similar functions not implemented on JS for now. *)
+let nchoose_tests = suite "nchoose" ~only_if:(fun () -> native) [
   test "empty" begin fun () ->
     let p = Lwt.nchoose [] in
     Lwt.return (Lwt.state p = Lwt.Sleep)
@@ -1799,7 +1889,7 @@ let nchoose_tests = suite "nchoose" [
 ]
 let suites = suites @ [nchoose_tests]
 
-let nchoose_split_tests = suite "nchoose_split" [
+let nchoose_split_tests = suite "nchoose_split" ~only_if:(fun () -> native) [
   test "empty" begin fun () ->
     let p = Lwt.nchoose_split [] in
     Lwt.return (Lwt.state p = Lwt.Sleep)
@@ -1873,7 +1963,8 @@ let suites = suites @ [nchoose_split_tests]
 (* Tests functions related to [Lwt.state]; [Lwt.state] itself is tested in the
    preceding sections. *)
 
-let state_query_tests = suite "state query" [
+(* Synchronous state query is not available on JS. *)
+let state_query_tests = suite "state query" ~only_if:(fun () -> native) [
   test "is_sleeping: fulfilled" begin fun () ->
     Lwt.return (not @@ Lwt.is_sleeping (Lwt.return ()))
   end;
@@ -1926,7 +2017,8 @@ let suites = suites @ [state_query_tests]
 
 
 (* Preceding tests exercised most of [Lwt.wakeup], but here are more checks. *)
-let wakeup_tests = suite "wakeup" [
+(* Sychronous wakeup is not possible on JS. *)
+let wakeup_tests = suite "wakeup" ~only_if:(fun () -> native) [
   test "wakeup_result: nested" begin fun () ->
     let f_ran = ref false in
     let p1, r1 = Lwt.wait () in
@@ -1950,14 +2042,16 @@ let wakeup_later_tests = suite "wakeup_later" [
     state_is (Lwt.Return "foobar") p
   end;
 
+  (* See comments at [wakeup] tests on double resolution with native promises
+     and JS promises. *)
   test "wakeup_later: double use on wait" begin fun () ->
     let _, r = Lwt.wait () in
     Lwt.wakeup r ();
     try
       Lwt.wakeup_later r ();
-      Lwt.return false
+      Lwt.return js
     with Invalid_argument "Lwt.wakeup_later" ->
-      Lwt.return true
+      Lwt.return native
   end [@ocaml.warning "-52"];
 
   test "wakeup_later: double use on task" begin fun () ->
@@ -1965,9 +2059,9 @@ let wakeup_later_tests = suite "wakeup_later" [
     Lwt.wakeup r ();
     try
       Lwt.wakeup_later r ();
-      Lwt.return false
+      Lwt.return js
     with Invalid_argument "Lwt.wakeup_later" ->
-      Lwt.return true
+      Lwt.return native
   end [@ocaml.warning "-52"];
 
   test "wakeup_later_result: double use on wait" begin fun () ->
@@ -1975,9 +2069,9 @@ let wakeup_later_tests = suite "wakeup_later" [
     Lwt.wakeup r ();
     try
       Lwt.wakeup_later_result r (Result.Ok ());
-      Lwt.return false
+      Lwt.return js
     with Invalid_argument "Lwt.wakeup_later_result" ->
-      Lwt.return true
+      Lwt.return native
   end [@ocaml.warning "-52"];
 
   test "wakeup_later_result: double use on task" begin fun () ->
@@ -1985,9 +2079,9 @@ let wakeup_later_tests = suite "wakeup_later" [
     Lwt.wakeup r ();
     try
       Lwt.wakeup_later_result r (Result.Ok ());
-      Lwt.return false
+      Lwt.return js
     with Invalid_argument "Lwt.wakeup_later_result" ->
-      Lwt.return true
+      Lwt.return native
   end [@ocaml.warning "-52"];
 
   test "wakeup_later_exn: double use on wait" begin fun () ->
@@ -1995,9 +2089,9 @@ let wakeup_later_tests = suite "wakeup_later" [
     Lwt.wakeup r ();
     try
       Lwt.wakeup_later_exn r Exception;
-      Lwt.return false
+      Lwt.return js
     with Invalid_argument "Lwt.wakeup_later_exn" ->
-      Lwt.return true
+      Lwt.return native
   end [@ocaml.warning "-52"];
 
   test "wakeup_later_exn: double use on task" begin fun () ->
@@ -2005,12 +2099,13 @@ let wakeup_later_tests = suite "wakeup_later" [
     Lwt.wakeup r ();
     try
       Lwt.wakeup_later_exn r Exception;
-      Lwt.return false
+      Lwt.return js
     with Invalid_argument "Lwt.wakeup_later_exn" ->
-      Lwt.return true
+      Lwt.return native
   end [@ocaml.warning "-52"];
 
-  test "wakeup_later_result: nested" begin fun () ->
+  (* There is nothing special about nested resolution under JS promises. *)
+  test "wakeup_later_result: nested" ~only_if:(fun () -> native) begin fun () ->
     let f_ran = ref false in
     let p1, r1 = Lwt.wait () in
     let p2, r2 = Lwt.wait () in
@@ -2044,7 +2139,8 @@ let suites = suites @ [wakeup_later_tests]
 
 (* Cancelation and its interaction with the rest of the API. *)
 
-let cancel_tests = suite "cancel" [
+(* Cancelation is not available with JS promises. *)
+let cancel_tests = suite "cancel" ~only_if:(fun () -> native) [
   test "fulfilled" begin fun () ->
     let p = Lwt.return () in
     Lwt.cancel p;
@@ -2094,7 +2190,7 @@ let cancel_tests = suite "cancel" [
 ]
 let suites = suites @ [cancel_tests]
 
-let on_cancel_tests = suite "on_cancel" [
+let on_cancel_tests = suite "on_cancel" ~only_if:(fun () -> native) [
   test "pending" begin fun () ->
     let f_ran = ref false in
     let p, _ = Lwt.task () in
@@ -2164,7 +2260,7 @@ let on_cancel_tests = suite "on_cancel" [
 ]
 let suites = suites @ [on_cancel_tests]
 
-let protected_tests = suite "protected" [
+let protected_tests = suite "protected" ~only_if:(fun () -> native) [
   test "fulfilled" begin fun () ->
     let p = Lwt.protected (Lwt.return ()) in
     (* If [p] starts fulfilled, it can't be canceled. *)
@@ -2224,7 +2320,7 @@ let protected_tests = suite "protected" [
 ]
 let suites = suites @ [protected_tests]
 
-let no_cancel_tests = suite "no_cancel" [
+let no_cancel_tests = suite "no_cancel" ~only_if:(fun () -> native) [
   test "fulfilled" begin fun () ->
     let p = Lwt.no_cancel (Lwt.return ()) in
     (* [p] starts fulfilled, so it can't be canceled. *)
@@ -2258,7 +2354,9 @@ let no_cancel_tests = suite "no_cancel" [
 ]
 let suites = suites @ [no_cancel_tests]
 
-let resolve_already_canceled_promise_tests = suite "resolve canceled" [
+let resolve_already_canceled_promise_tests =
+    suite "resolve canceled" ~only_if:(fun () -> native) [
+
   test "wakeup: canceled" begin fun () ->
     let p, r = Lwt.task () in
     Lwt.cancel p;
@@ -2277,7 +2375,9 @@ let resolve_already_canceled_promise_tests = suite "resolve canceled" [
 ]
 let suites = suites @ [resolve_already_canceled_promise_tests]
 
-let pick_tests = suite "pick" [
+(* Since cancelation is not available, [pick] and [choose] are aliases on JS,
+   and [pick] is covered by the tests of [choose]. *)
+let pick_tests = suite "pick" ~only_if:(fun () -> native) [
   test "empty" begin fun () ->
     let p = Lwt.pick [] in
     Lwt.return (Lwt.state p = Lwt.Sleep)
@@ -2358,7 +2458,7 @@ let pick_tests = suite "pick" [
 ]
 let suites = suites @ [pick_tests]
 
-let npick_tests = suite "npick" [
+let npick_tests = suite "npick" ~only_if:(fun () -> native) [
   test "empty" begin fun () ->
     let p = Lwt.npick [] in
     Lwt.return (Lwt.state p = Lwt.Sleep)
@@ -2438,7 +2538,7 @@ let npick_tests = suite "npick" [
 ]
 let suites = suites @ [npick_tests]
 
-let cancel_bind_tests = suite "cancel bind" [
+let cancel_bind_tests = suite "cancel bind" ~only_if:(fun () -> native) [
   test "wait, pending, canceled" begin fun () ->
     let f_ran = ref false in
     let p, _ = Lwt.wait () in
@@ -2526,7 +2626,7 @@ let cancel_bind_tests = suite "cancel bind" [
 ]
 let suites = suites @ [cancel_bind_tests]
 
-let cancel_map_tests = suite "cancel map" [
+let cancel_map_tests = suite "cancel map" ~only_if:(fun () -> native) [
   test "wait, pending, canceled" begin fun () ->
     let f_ran = ref false in
     let p, _ = Lwt.wait () in
@@ -2549,7 +2649,7 @@ let cancel_map_tests = suite "cancel map" [
 ]
 let suites = suites @ [cancel_map_tests]
 
-let cancel_catch_tests = suite "cancel catch" [
+let cancel_catch_tests = suite "cancel catch" ~only_if:(fun () -> native) [
   (* In [p' = Lwt.catch (fun () -> p) f], if [p] is not cancelable, [p'] is also
      not cancelable. *)
   test "wait, pending, canceled" begin fun () ->
@@ -2653,7 +2753,9 @@ let cancel_catch_tests = suite "cancel catch" [
 ]
 let suites = suites @ [cancel_catch_tests]
 
-let cancel_try_bind_tests = suite "cancel try_bind" [
+let cancel_try_bind_tests =
+    suite "cancel try_bind" ~only_if:(fun () -> native) [
+
   test "wait, pending, canceled" begin fun () ->
     let f_or_g_ran = ref false in
     let p, _ = Lwt.wait () in
@@ -2750,7 +2852,9 @@ let cancel_try_bind_tests = suite "cancel try_bind" [
 ]
 let suites = suites @ [cancel_try_bind_tests]
 
-let cancel_finalize_tests = suite "cancel finalize" [
+let cancel_finalize_tests =
+    suite "cancel finalize" ~only_if:(fun () -> native) [
+
   test "wait, pending, canceled" begin fun () ->
     let f_ran = ref false in
     let p, _ = Lwt.wait () in
@@ -2809,7 +2913,9 @@ let cancel_finalize_tests = suite "cancel finalize" [
 ]
 let suites = suites @ [cancel_finalize_tests]
 
-let cancel_direct_handler_tests = suite "cancel with direct handler" [
+let cancel_direct_handler_tests =
+    suite "cancel with direct handler" ~only_if:(fun () -> native) [
+
   test "on_success: pending, canceled" begin fun () ->
     let f_ran = ref false in
     let p, _ = Lwt.task () in
@@ -2845,7 +2951,7 @@ let cancel_direct_handler_tests = suite "cancel with direct handler" [
 ]
 let suites = suites @ [cancel_direct_handler_tests]
 
-let cancel_join_tests = suite "cancel join" [
+let cancel_join_tests = suite "cancel join" ~only_if:(fun () -> native) [
   test "wait, pending, cancel" begin fun () ->
     let p1, _ = Lwt.wait () in
     let p2, _ = Lwt.wait () in
@@ -2895,7 +3001,7 @@ let cancel_join_tests = suite "cancel join" [
 ]
 let suites = suites @ [cancel_join_tests]
 
-let cancel_choose_tests = suite "cancel choose" [
+let cancel_choose_tests = suite "cancel choose" ~only_if:(fun () -> native) [
   test "wait, pending, cancel" begin fun () ->
     let p1, _ = Lwt.wait () in
     let p2, _ = Lwt.wait () in
@@ -2920,7 +3026,7 @@ let cancel_choose_tests = suite "cancel choose" [
 ]
 let suites = suites @ [cancel_choose_tests]
 
-let cancel_pick_tests = suite "cancel pick" [
+let cancel_pick_tests = suite "cancel pick" ~only_if:(fun () -> native) [
   test "wait, pending, cancel" begin fun () ->
     let p1, _ = Lwt.wait () in
     let p2, _ = Lwt.wait () in
@@ -2945,7 +3051,7 @@ let cancel_pick_tests = suite "cancel pick" [
 ]
 let suites = suites @ [cancel_pick_tests]
 
-let cancel_nchoose_tests = suite "cancel nchoose" [
+let cancel_nchoose_tests = suite "cancel nchoose" ~only_if:(fun () -> native) [
   test "wait, pending, cancel" begin fun () ->
     let p1, _ = Lwt.wait () in
     let p2, _ = Lwt.wait () in
@@ -2970,7 +3076,7 @@ let cancel_nchoose_tests = suite "cancel nchoose" [
 ]
 let suites = suites @ [cancel_nchoose_tests]
 
-let cancel_npick_tests = suite "cancel npick" [
+let cancel_npick_tests = suite "cancel npick" ~only_if:(fun () -> native) [
   test "wait, pending, cancel" begin fun () ->
     let p1, _ = Lwt.wait () in
     let p2, _ = Lwt.wait () in
@@ -2995,7 +3101,9 @@ let cancel_npick_tests = suite "cancel npick" [
 ]
 let suites = suites @ [cancel_npick_tests]
 
-let cancel_nchoose_split_tests = suite "cancel nchoose_split" [
+let cancel_nchoose_split_tests =
+    suite "cancel nchoose_split" ~only_if:(fun () -> native) [
+
   test "wait, pending, cancel" begin fun () ->
     let p1, _ = Lwt.wait () in
     let p2, _ = Lwt.wait () in
@@ -3024,7 +3132,8 @@ let suites = suites @ [cancel_nchoose_split_tests]
 
 (* Sequence-associated storage, and its interaction with the rest of the API. *)
 
-let storage_tests = suite "storage" [
+(* Sequence-associated storage is deprecated and not available on JS. *)
+let storage_tests = suite "storage" ~only_if:(fun () -> native) [
   test "initial" begin fun () ->
     let key = Lwt.new_key () in
     Lwt.return (Lwt.get key = None)
@@ -3308,7 +3417,11 @@ let lwt_sequence_contains sequence list =
   in
   fst (Lwt_sequence.fold_l step sequence (true, list))
 
-let lwt_sequence_tests = suite "add_task_l and add_task_r" [
+(* [add_task_l] and [add_task_r] are deprecated, and cancelation is not
+   available on JS. *)
+let lwt_sequence_tests =
+    suite "add_task_l and add_task_r" ~only_if:(fun () -> native) [
+
   test "add_task_r" begin fun () ->
     let sequence = Lwt_sequence.create () in
     let p = Lwt.add_task_r sequence in
@@ -3343,6 +3456,7 @@ let pause_tests = suite "pause" [
   end;
 
   test "one promise" begin fun () ->
+    Lwt.register_pause_notifier ignore;
     let p = Lwt.pause () in
     assert (Lwt.paused_count () = 1);
     Lwt.bind (state_is Lwt.Sleep p) (fun initial_state_correct ->
@@ -3353,6 +3467,7 @@ let pause_tests = suite "pause" [
   end;
 
   test "multiple promises" begin fun () ->
+    Lwt.register_pause_notifier ignore;
     let p1 = Lwt.pause () in
     let p2 = Lwt.pause () in
     assert (Lwt.paused_count () = 2);
@@ -3564,7 +3679,7 @@ let suites = suites @ [make_value_and_error_tests]
 
 let callback_cleanup_point = 42
 
-let callback_list_tests = suite "callback cleanup" [
+let callback_list_tests = suite "callback cleanup" ~only_if:(fun () -> native) [
   test "choose" begin fun () ->
     let p1, r1 = Lwt.wait () in
     let p2 = Lwt.bind p1 (fun s -> Lwt.return (s ^ "bar")) in

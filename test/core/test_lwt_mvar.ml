@@ -28,6 +28,9 @@ open Test
 let state_is =
   Lwt.debug_state_is
 
+let native () =
+  Lwt.debug_underlying_implementation = `Native
+
 
 
 let suite = suite "lwt_mvar" [
@@ -97,7 +100,7 @@ let suite = suite "lwt_mvar" [
     Lwt.return (y_correct && z_correct)
   end;
 
-  test "writer cancellation" begin fun () ->
+  test "writer cancellation" ~only_if:native begin fun () ->
     let y = Lwt_mvar.create 1 in
     let r1 = Lwt_mvar.put y 2 in
     Lwt.cancel r1;

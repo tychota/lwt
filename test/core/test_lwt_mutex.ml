@@ -23,7 +23,10 @@
 open Lwt.Infix
 open Test
 
-let suite = suite "lwt_mutex" [
+let native () =
+  Lwt.debug_underlying_implementation = `Native
+
+let suite = suite "lwt_mutex" ~only_if:native [
   (* See https://github.com/ocsigen/lwt/pull/202#issue-123451878. *)
   test "cancel"
     (fun () ->

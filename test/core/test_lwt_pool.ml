@@ -25,19 +25,27 @@ open Test
 
 exception Dummy_error
 
-let suite = suite "lwt_pool" [
+let state_is =
+  Lwt.debug_state_is
+
+let native () =
+  Lwt.debug_underlying_implementation = `Native
+
+
+
+let suite = suite "lwt_pool" ~only_if:native [
 
   test "basic create-use" begin fun () ->
     let gen = fun () -> Lwt.return () in
     let p = Lwt_pool.create 1 gen in
-    Lwt.return (Lwt.state (Lwt_pool.use p Lwt.return) = Lwt.Return ())
+    state_is (Lwt.Return ()) (Lwt_pool.use p Lwt.return)
   end;
 
   test "creator exception" begin fun () ->
     let gen = fun () -> Lwt.fail Dummy_error in
     let p = Lwt_pool.create 1 gen in
     let u = Lwt_pool.use p (fun _ -> Lwt.return 0) in
-    Lwt.return (Lwt.state u = Lwt.Fail Dummy_error)
+    state_is (Lwt.Fail Dummy_error) u
   end;
 
   test "pool elements are reused" begin fun () ->
@@ -45,7 +53,7 @@ let suite = suite "lwt_pool" [
     let p = Lwt_pool.create 1 gen in
     let _ = Lwt_pool.use p (fun n -> n := 1; Lwt.return !n) in
     let u2 = Lwt_pool.use p (fun n -> Lwt.return !n) in
-    Lwt.return (Lwt.state u2 = Lwt.Return 1)
+    state_is (Lwt.Return 1) u2
   end;
 
   test "pool elements are validated when returned" begin fun () ->
@@ -54,7 +62,7 @@ let suite = suite "lwt_pool" [
     let p = Lwt_pool.create 1 ~validate:v gen in
     let _ = Lwt_pool.use p (fun n -> n := 1; Lwt.return !n) in
     let u2 = Lwt_pool.use p (fun n -> Lwt.return !n) in
-    Lwt.return (Lwt.state u2 = Lwt.Return 0)
+    state_is (Lwt.Return 0) u2
   end;
 
   test "validation exceptions are propagated to users" begin fun () ->

@@ -391,7 +391,7 @@ let () =
 
 (** {3 Promises} *)
 
-type +'a t
+type +'a t = 'a Js.Promise.t
 (** Promises for values of type ['a].
 
     A {b promise} is a memory cell that is always in one of three {b states}:
@@ -1815,3 +1815,4 @@ val backtrace_try_bind :
 val abandon_wakeups : unit -> unit
 
 val debug_state_is : 'a state -> 'a t -> bool t
+val debug_underlying_implementation : [`Native | `JS]

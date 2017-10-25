@@ -1,0 +1,22 @@
+{
+  "name": "lwt",
+  "version": "3.1.0",
+  "description": "Reason Promise library",
+  "keywords": ["BuckleScript", "reason", "ocaml", "promise"],
+  "license": "LGPL-2.1",
+  "repository": "ocsigen/lwt",
+  "author": {
+      "name": "Anton Bachin",
+      "email": "antonbachin@yahoo.com",
+      "url": "github.com/aantron"
+  },
+  "devDependencies": {
+    "bs-platform": "1.10.3"
+  },
+  "scripts": {
+    "clean": "bsb -clean-world",
+    "build": "bsb -make-world",
+    "watch": "bsb -make-world -w",
+    "test": "node lib/js/test/core/main.js"
+  }
+}
